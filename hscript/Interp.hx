@@ -33,12 +33,12 @@ private enum Stop {
 class Interp {
 
 	public var variables : Map<String,Dynamic>;
-	var locals : Map<String,{ r : Dynamic }>;
+	var locals : Map<String,{ r : Dynamic, ?isfinal : Bool }>;
 	var binops : Map<String, Expr -> Expr -> Dynamic >;
 
 	var depth : Int;
 	var inTry : Bool;
-	var declared : Array<{ n : String, old : { r : Dynamic } }>;
+	var declared : Array<{ n : String, old : { r : Dynamic, ?isfinal : Bool } }>;
 	var returnValue : Dynamic;
 
 	#if hscriptPos
@@ -122,6 +122,7 @@ class Interp {
 		switch( Tools.expr(e1) ) {
 		case EIdent(id):
 			var l = locals.get(id);
+			if( l != null && l.isfinal && l.r != null) return error(EInvalidAccess(id));
 			if( l == null )
 				setVar(id,v)
 			else
@@ -155,6 +156,7 @@ class Interp {
 		case EIdent(id):
 			var l = locals.get(id);
 			v = fop(expr(e1),expr(e2));
+			if( l != null && l.isfinal && l.r != null) return error(EInvalidAccess(id));
 			if( l == null )
 				setVar(id,v)
 			else
@@ -189,6 +191,7 @@ class Interp {
 		case EIdent(id):
 			var l = locals.get(id);
 			var v : Dynamic = (l == null) ? resolve(id) : l.r;
+			if( l != null && l.isfinal && l.r != null) return error(EInvalidAccess(id));
 			if( prefix ) {
 				v += delta;
 				if( l == null ) setVar(id,v) else l.r = v;
@@ -310,6 +313,10 @@ class Interp {
 		case EVar(n,_,e):
 			declared.push({ n : n, old : locals.get(n) });
 			locals.set(n,{ r : (e == null)?null:expr(e) });
+			return null;
+		case EFinal(n,_,e):
+			declared.push({ n : n, old : locals.get(n) });
+			locals.set(n,{ r : (e == null)?null:expr(e), isfinal : true });
 			return null;
 		case EParent(e):
 			return expr(e);

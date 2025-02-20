@@ -43,6 +43,7 @@ enum Expr {
 	EConst( c : Const );
 	EIdent( v : String );
 	EVar( n : String, ?t : CType, ?e : Expr );
+	EFinal( n : String, ?t : CType, ?e : Expr );
 	EParent( e : Expr );
 	EBlock( e : Array<Expr> );
 	EField( e : Expr, f : String );
@@ -174,4 +175,5 @@ typedef VarDecl = {
 	var set : Null<String>;
 	var expr : Null<Expr>;
 	var type : Null<CType>;
+	var isfinal : Null<Bool>;
 }
