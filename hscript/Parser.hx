@@ -119,7 +119,8 @@ class Parser {
 			["||"],
 			["??"],
 			["=","+=","-=","*=","/=","%=","<<=",">>=",">>>=","|=","&=","^=","=>"],
-			["->"]
+			["->"],
+			["in","is"]
 		];
 		opPriority = new Map();
 		opRightAssoc = new Map();
@@ -273,7 +274,7 @@ class Parser {
 		case EUnop(_,prefix,e): !prefix && isBlock(e);
 		case EWhile(_,e): isBlock(e);
 		case EDoWhile(_,e): isBlock(e);
-		case EFor(_,_,e): isBlock(e);
+		case EFor(_,_,e), EForGen(_, e): isBlock(e);
 		case EReturn(e): e != null && isBlock(e);
 		case ETry(_, _, _, e): isBlock(e);
 		case EMeta(_, _, e): isBlock(e);
@@ -447,12 +448,21 @@ class Parser {
 		case TBkOpen:
 			var a = new Array();
 			tk = token();
+			var first = true;
 			while( tk != TBkClose && (!resumeErrors || tk != TEof) ) {
+				if (!first) {
+					if (tk != TComma)
+						unexpected(tk);
+					else {
+						tk = token();
+						if (tk == TBkClose)
+							break;
+					}
+				}
+				first = false;
 				push(tk);
 				a.push(parseExpr());
 				tk = token();
-				if( tk == TComma )
-					tk = token();
 			}
 			if( a.length == 1 && a[0] != null )
 				switch( expr(a[0]) ) {
@@ -524,6 +534,8 @@ class Parser {
 		var edef = switch( expr(e) ) {
 		case EFor(v, it, e2):
 			EFor(v, it, mapCompr(tmp, e2));
+		case EForGen(it, e2):
+			EForGen(it, mapCompr(tmp, e2));
 		case EWhile(cond, e2):
 			EWhile(cond, mapCompr(tmp, e2));
 		case EDoWhile(cond, e2):
@@ -555,7 +567,8 @@ class Parser {
 			return mk(EBinop(op,e1,e),pmin(e1),pmax(e1));
 		return switch( expr(e) ) {
 		case EBinop(op2,e2,e3):
-			if( opPriority.get(op) <= opPriority.get(op2) && !opRightAssoc.exists(op) )
+			var delta = opPriority.get(op) - opPriority.get(op2);
+			if( delta < 0 || (delta == 0 && !opRightAssoc.exists(op)) )
 				mk(EBinop(op2,makeBinop(op,e1,e2),e3),pmin(e1),pmax(e3));
 			else
 				mk(EBinop(op, e1, e), pmin(e1), pmax(e));
@@ -593,7 +606,7 @@ class Parser {
 				if( semic ) push(TSemicolon);
 			}
 			mk(EIf(cond,e1,e2),p1,(e2 == null) ? tokenMax : pmax(e2));
-		case "var":
+		case "var", "final":
 			var ident = getIdent();
 			var tk = token();
 			var t = null;
@@ -651,12 +664,19 @@ class Parser {
 			mk(EDoWhile(econd,e),p1,pmax(econd));
 		case "for":
 			ensure(TPOpen);
-			var vname = getIdent();
-			ensureToken(TId("in"));
-			var eiter = parseExpr();
+			var eit = parseExpr();
 			ensure(TPClose);
 			var e = parseExpr();
-			mk(EFor(vname,eiter,e),p1,pmax(e));
+			switch( expr(eit) ) {
+			case EBinop("in",ev,eit):
+				switch( expr(ev) ) {
+				case EIdent(v):
+					return mk(EFor(v,eit,e),p1,pmax(e));
+				default:
+				}
+			default:
+			}
+			mk(EForGen(eit,e),p1,pmax(e));
 		case "break": mk(EBreak);
 		case "continue": mk(EContinue);
 		case "else": unexpected(TId(id));
@@ -816,8 +836,8 @@ class Parser {
 				return parseExprNext(mk(EUnop(op,false,e1),pmin(e1)));
 			}
 			return makeBinop(op,e1,parseExpr());
-		case TId(op) if ( op == 'is' ):
-			return makeBinop(op,e1,parseExpr());
+		case TId(op) if( opPriority.exists(op) ):
+			return parseExprNext(makeBinop(op,e1,parseExpr()));
 		case TDot:
 			var field = getIdent();
 			return parseExprNext(mk(EField(e1,field),pmin(e1)));
@@ -832,6 +852,18 @@ class Parser {
 					mk(EField(mk(EIdent(tmp),pmin(e1),pmax(e1)),field),pmin(e1))
 				))
 			]),pmin(e1));
+
+			if ( maybe(TPOpen) ) {
+				e = mk(EBlock([
+					mk(EVar(tmp, null, e1), pmin(e1), pmax(e1)),
+					mk(ETernary(
+						mk(EBinop("==", mk(EIdent(tmp),pmin(e1),pmax(e1)), mk(EIdent("null"),pmin(e1),pmax(e1)))),
+						mk(EIdent("null"),pmin(e1),pmax(e1)),
+						mk(ECall(mk(EField(mk(EIdent(tmp),pmin(e1),pmax(e1)),field),pmin(e1)),parseExprList(TPClose)),pmin(e1))
+					))
+				]),pmin(e1));
+			}
+
 			return parseExprNext(e);
 		case TPOpen:
 			return parseExprNext(mk(ECall(e1,parseExprList(TPClose)),pmin(e1)));
@@ -932,7 +964,13 @@ class Parser {
 				if( op == "<" ) {
 					params = [];
 					while( true ) {
-						params.push(parseType());
+						switch( token() ) {
+						case TConst(c):
+							params.push(CTExpr(mk(EConst(c))));
+						case tk:
+							push(tk);
+							params.push(parseType());
+						}
 						t = token();
 						switch( t ) {
 						case TComma: continue;
@@ -958,8 +996,8 @@ class Parser {
 			}
 			return parseTypeNext(CTPath(path, params));
 		case TPOpen:
-			var a = token(),
-					b = token();
+			var a = token();
+			var b = token();
 
 			push(b);
 			push(a);
@@ -1012,9 +1050,13 @@ class Parser {
 				t = token();
 				switch( t ) {
 				case TBrClose: break;
-				case TId("var"):
+				case TId("var"), TId("final"):
 					var name = getIdent();
 					ensure(TDoubleDot);
+					if( t.match(TId("final")) ) {
+						if( meta == null ) meta = [];
+						meta.push({ name : ":final", params : [] });
+					}
 					fields.push( { name : name, t : parseType(), meta : meta } );
 					meta = null;
 					ensure(TSemicolon);
@@ -1161,8 +1203,18 @@ class Parser {
 					unexpected(t);
 				}
 			}
+			var name = null;
+			if ( maybe(TId("as")) && !star) {
+				var t = token();
+				switch( t ) {
+				case TId(id):
+					name = id;
+				default:
+					unexpected(t);
+				}
+			}
 			ensure(TSemicolon);
-			return DImport(path, star);
+			return DImport(path, star, name);
 		case "class":
 			var name = getIdent();
 			var params = parseParams();
@@ -1209,6 +1261,20 @@ class Parser {
 				isPrivate : isPrivate,
 				t : t,
 			});
+		case "enum":
+			var name = getIdent();
+			
+			var fields = [];
+			ensure(TBrOpen);
+			while( !maybe(TBrClose) ) {
+				fields.push(parseEnumField());
+				ensure(TSemicolon);
+			}
+
+			return DEnum({
+				name: name,
+				fields: fields
+			});
 		default:
 			unexpected(TId(ident));
 		}
@@ -1246,7 +1312,7 @@ class Parser {
 						ret : inf.ret,
 					}),
 				};
-			case "var" | "final":
+			case "var", "final":
 				var name = getIdent();
 				var get = null, set = null;
 				if( maybe(TPOpen) ) {
@@ -1286,6 +1352,31 @@ class Parser {
 			}
 		}
 		return null;
+	}
+
+	function parseEnumField() : EnumFieldDecl {
+		var name = getIdent();
+
+		var args = [];
+		if( maybe(TPOpen) ) {
+			while ( !maybe(TPClose) )
+				args.push(parseEnumArg());
+		}
+		
+		return {
+			name: name,
+			args: args
+		};
+	}
+
+	function parseEnumArg() : EnumArgDecl {
+		var name = getIdent();
+		var type = maybe(TDoubleDot) ? parseType() : null;
+
+		return {
+			name: name,
+			type: type
+		};
 	}
 
 	// ------------------------ lexing -------------------------------

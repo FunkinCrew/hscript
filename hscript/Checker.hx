@@ -77,6 +77,8 @@ typedef CTypedef = {> CNamedType,
 
 typedef CAbstract = {> CNamedType,
 	var t : TType;
+	var from : Array<TType>;
+	var to : Array<TType>;
 }
 
 class Completion {
@@ -233,6 +235,8 @@ class CheckerTypes {
 				name : a.path,
 				params : [],
 				t : null,
+				from : [],
+				to : [],
 			};
 			addMeta(a,ta);
 			for( p in a.params )
@@ -240,6 +244,12 @@ class CheckerTypes {
 			todo.push(function() {
 				localParams = [for( t in ta.params ) a.path+"."+Checker.typeStr(t) => t];
 				ta.t = makeXmlType(a.athis);
+				for( f in a.from )
+					if( f.field == null )
+						ta.from.push(makeXmlType(f.t));
+				for( t in a.to )
+					if( t.field == null )
+						ta.to.push(makeXmlType(t.t));
 				localParams = null;
 			});
 			types.set(a.path, CTAbstract(ta));
@@ -338,15 +348,22 @@ class Checker {
 		this.types = types;
 	}
 
-	public function setGlobals( cl : CClass, allowPrivate = false ) {
+	public function setGlobals( cl : CClass, ?params : Array<TType>, allowPrivate = false ) {
+		if( params == null )
+			params = [for( p in cl.params ) makeMono()];
 		while( true ) {
 			for( f in cl.fields )
 				if( f.isPublic || allowPrivate )
-					setGlobal(f.name, f.params.length == 0 ? f.t : TLazy(function() return apply(f.t,f.params,[for( i in 0...f.params.length) makeMono()])));
+					setGlobal(f.name, f.params.length == 0 ? f.t : TLazy(function() {
+						var t = apply(f.t,f.params,[for( i in 0...f.params.length) makeMono()]);
+						return apply(t, cl.params, params);
+					}));
 			if( cl.superClass == null )
 				break;
 			cl = switch( cl.superClass ) {
-			case TInst(c,_): c;
+			case TInst(csup,pl):
+				params = [for( p in pl ) apply(p,cl.params,params)];
+				csup;
 			default: throw "assert";
 			}
 		}
@@ -465,6 +482,9 @@ class Checker {
 			return makeType(t,e);
 		case CTOpt(t):
 			return makeType(t,e);
+		case CTExpr(_):
+			error("Unsupported expr type parameter", e);
+			return null;
 		}
 	}
 
@@ -722,6 +742,18 @@ class Checker {
 			return true;
 		case [TFun(_), TAbstract({ name : "haxe.Function" },_)]:
 			return true;
+		case [_, TAbstract(a, args)]:
+			for( ft in a.from ) {
+				var t = apply(ft,a.params,args);
+				if( tryUnify(t1,t) )
+					return true;
+			}
+		case [TAbstract(a, args), _]:
+			for( tt in a.to ) {
+				var t = apply(tt,a.params,args);
+				if( tryUnify(t,t2) )
+					return true;
+			}
 		default:
 		}
 		return typeEq(t1,t2);
@@ -1185,10 +1217,25 @@ class Checker {
 		case EFor(v, it, e):
 			var locals = saveLocals();
 			var itt = typeExpr(it, Value);
-			var vt = getIteratorType(it, itt);
+			var vt = getIteratorType(itt, it);
 			this.locals.set(v, vt);
 			typeExpr(e, NoValue);
 			this.locals = locals;
+			return TVoid;
+		case EForGen(it, e):
+			Tools.getKeyIterator(it,function(vk,vv,it) {
+				if( vk == null ) {
+					error("Invalid for expression", it);
+					return;
+				}
+				var locals = saveLocals();
+				var itt = typeExpr(it, Value);
+				var types = getKeyIteratorTypes(itt, it);
+				this.locals.set(vk, types.key);
+				this.locals.set(vv, types.value);
+				typeExpr(e, NoValue);
+				this.locals = locals;
+			});
 			return TVoid;
 		case EBinop(op, e1, e2):
 			switch( op ) {
@@ -1320,7 +1367,7 @@ class Checker {
 		return TDynamic;
 	}
 
-	function getIteratorType( it : Expr, itt : TType ) {
+	function getIteratorType( itt : TType, it : Expr ) {
 		switch( follow(itt) ) {
 		case TInst({name:"Array"},[t]):
 			return t;
@@ -1333,7 +1380,7 @@ class Checker {
 				// special case : we allow unconditional access
 				// to an abstract iterator() underlying value (eg: ArrayProxy)
 				var at = apply(a.t,a.params,args);
-				return getIteratorType(it, at);
+				return getIteratorType(at, it);
 			default:
 			}
 		if( ft != null )
@@ -1346,5 +1393,35 @@ class Checker {
 		unify(ft != null ? ft : itt,iter,it);
 		return t;
 	}
+
+
+	function getKeyIteratorTypes( itt : TType, it : Expr ) {
+		switch( follow(itt) ) {
+		case TInst({name:"Array"},[t]):
+			return { key : TInt, value : t };
+		default:
+		}
+		var ft = getField(itt,"keyValueIterator", it);
+		if( ft == null )
+			switch( itt ) {
+			case TAbstract(a, args):
+				// special case : we allow unconditional access
+				// to an abstract keyValueIterator() underlying value (eg: ArrayProxy)
+				var at = apply(a.t,a.params,args);
+				return getKeyIteratorTypes(at, it);
+			default:
+			}
+		if( ft != null )
+			switch( ft ) {
+			case TFun([],ret): ft = ret;
+			default: ft = null;
+			}
+		var key = makeMono();
+		var value = makeMono();
+		var iter = makeIterator(TAnon([{name:"key",t:key,opt:false},{name:"value",t:value,opt:false}]));
+		unify(ft != null ? ft : itt,iter,it);
+		return { key : key, value : value };
+	}
+
 
 }
