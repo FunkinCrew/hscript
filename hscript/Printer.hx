@@ -98,6 +98,8 @@ class Printer {
 			add("(");
 			type(t);
 			add(")");
+		case CTExpr(e):
+			expr(e);
 		}
 	}
 
@@ -108,18 +110,21 @@ class Printer {
 		}
 	}
 
+	function addConst( c : Const ) {
+		switch( c ) {
+		case CInt(i): add(i);
+		case CFloat(f): add(f);
+		case CString(s): add('"'); add(s.split('"').join('\\"').split("\n").join("\\n").split("\r").join("\\r").split("\t").join("\\t")); add('"');
+		}
+	}
+
 	function expr( e : Expr ) {
 		if( e == null ) {
 			add("??NULL??");
 			return;
 		}
 		switch( #if hscriptPos e.e #else e #end ) {
-		case EConst(c):
-			switch( c ) {
-			case CInt(i): add(i);
-			case CFloat(f): add(f);
-			case CString(s): add('"'); add(s.split('"').join('\\"').split("\n").join("\\n").split("\r").join("\\r").split("\t").join("\\t")); add('"');
-			}
+		case EConst(c): addConst(c);
 		case EIdent(v):
 			add(v);
 		case EVar(n, t, e):
@@ -200,6 +205,11 @@ class Printer {
 			add(" )");
 		case EFor(v, it, e):
 			add("for( "+v+" in ");
+			expr(it);
+			add(" ) ");
+			expr(e);
+		case EForGen(it, e):
+			add("for( ");
 			expr(it);
 			add(" ) ");
 			expr(e);

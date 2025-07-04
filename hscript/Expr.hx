@@ -67,6 +67,7 @@ enum Expr {
 	EDoWhile( cond : Expr, e : Expr);
 	EMeta( name : String, args : Array<Expr>, e : Expr );
 	ECheckType( e : Expr, t : CType );
+	EForGen( it : Expr, e : Expr );
 }
 
 typedef Argument = { name : String, ?t : CType, ?opt : Bool, ?value : Expr };
@@ -80,6 +81,7 @@ enum CType {
 	CTParent( t : CType );
 	CTOpt( t : CType );
 	CTNamed( n : String, t : CType );
+	CTExpr( e : Expr ); // for type parameters only
 }
 
 #if hscriptPos
@@ -119,10 +121,11 @@ enum Error {
 
 enum ModuleDecl {
 	DPackage( path : Array<String> );
-	DImport( path : Array<String>, ?everything : Bool );
+	DImport( path : Array<String>, ?everything : Bool, ?name : String );
 	DUsing( path: Array<String> );
 	DClass( c : ClassDecl );
 	DTypedef( c : TypeDecl );
+	DEnum( e : EnumDecl );
 }
 
 typedef ModuleType = {
@@ -137,6 +140,21 @@ typedef ClassDecl = {> ModuleType,
 	var implement : Array<CType>;
 	var fields : Array<FieldDecl>;
 	var isExtern : Bool;
+}
+
+typedef EnumDecl = {
+	var name: String;
+	var fields : Array<EnumFieldDecl>;
+}
+
+typedef EnumFieldDecl = {
+	var name : String;
+	var args : Array<EnumArgDecl>;
+}
+
+typedef EnumArgDecl = {
+	var name : String;
+	var type : Null<CType>;
 }
 
 typedef TypeDecl = {> ModuleType,
