@@ -823,25 +823,37 @@ class Parser {
 		case TQuestionDot:
 			var field = getIdent();
 			var tmp = "__a_" + (uid++);
+			var t = token();
+			inline function pushBack() { push(t); return null; }
+			var eOp = switch (t) {
+				case TOp(s): if (!opRightAssoc.exists(s)) pushBack(); else s;
+				case TPOpen: '';
+				default: pushBack();
+			}
+
+			if (eOp != null && eOp.length > 0) {
+				var e2 = parseExpr();
+				var e = 
+					mk(EBlock([
+						mk(EVar(tmp, null, e1)),
+						mk(ETernary(
+						mk(EBinop("!=", mk(EIdent(tmp), pmin(e1), pmax(e1)), mk(EIdent("null"), pmin(e1), pmax(e1))), pmin(e1), pmax(e1)),
+						mk(EBinop(eOp, mk(EField(mk(EIdent(tmp), pmin(e1), pmax(e1)),field), pmin(e1), pmax(e1)), e2), pmin(e1), pmax(e2)),
+						mk(EIdent("null"), pmin(e2), pmax(e2))),
+						pmin(e1), pmax(e2))
+				]), pmin(e1));
+				return parseExprNext(e);
+			}
+
 			var e = mk(EBlock([
 				mk(EVar(tmp, null, e1), pmin(e1), pmax(e1)),
 				mk(ETernary(
 					mk(EBinop("==", mk(EIdent(tmp),pmin(e1),pmax(e1)), mk(EIdent("null"),pmin(e1),pmax(e1)))),
 					mk(EIdent("null"),pmin(e1),pmax(e1)),
+					(eOp != null && eOp.length == 0) ? mk(ECall(mk(EField(mk(EIdent(tmp),pmin(e1),pmax(e1)),field),pmin(e1)),parseExprList(TPClose)),pmin(e1)) :
 					mk(EField(mk(EIdent(tmp),pmin(e1),pmax(e1)),field),pmin(e1))
 				))
 			]),pmin(e1));
-
-			if ( maybe(TPOpen) ) {
-				e = mk(EBlock([
-					mk(EVar(tmp, null, e1), pmin(e1), pmax(e1)),
-					mk(ETernary(
-						mk(EBinop("==", mk(EIdent(tmp),pmin(e1),pmax(e1)), mk(EIdent("null"),pmin(e1),pmax(e1)))),
-						mk(EIdent("null"),pmin(e1),pmax(e1)),
-						mk(ECall(mk(EField(mk(EIdent(tmp),pmin(e1),pmax(e1)),field),pmin(e1)),parseExprList(TPClose)),pmin(e1))
-					))
-				]),pmin(e1));
-			}
 
 			return parseExprNext(e);
 		case TPOpen:
