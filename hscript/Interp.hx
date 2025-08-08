@@ -110,6 +110,7 @@ class Interp {
 		assignOp("<<=",function(v1,v2) return v1 << v2);
 		assignOp(">>=",function(v1,v2) return v1 >> v2);
 		assignOp(">>>=",function(v1,v2) return v1 >>> v2);
+		assignOp("??=",function(v1,v2) return v1 ?? v2);
 	}
 
 	function setVar( name : String, v : Dynamic ) {
