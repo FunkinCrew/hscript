@@ -268,7 +268,7 @@ class Parser {
 		return switch( expr(e) ) {
 		case EBlock(_), EObject(_), ESwitch(_): true;
 		case EFunction(_,e,_,_): isBlock(e);
-		case EVar(_, t, e): e != null ? isBlock(e) : t != null ? t.match(CTAnon(_)) : false;
+		case EVar(_, t, e) | EFinal(_, t, e): e != null ? isBlock(e) : t != null ? t.match(CTAnon(_)) : false;
 		case EIf(_,e1,e2): if( e2 != null ) isBlock(e2) else isBlock(e1);
 		case EBinop(_,_,e): isBlock(e);
 		case EUnop(_,prefix,e): !prefix && isBlock(e);
@@ -627,6 +627,27 @@ class Parser {
 			}
 
 			mk(EVar(ident,t,e),p1,(e == null) ? tokenMax : pmax(e));
+		case "final":
+			var ident = getIdent();
+			var tk = token();
+			var t = null;
+			if( tk == TDoubleDot && allowTypes ) {
+				t = parseType();
+				tk = token();
+			}
+			var e = null;
+	
+			switch (tk)
+			{
+				case TOp("="): e = parseExpr();
+				case TOp(_): unexpected(tk);
+				case TComma | TSemicolon: push(tk);
+				// Above case should be enough but semicolon is not mandatory after }
+				case _ if (t != null): push(tk);
+				default: unexpected(tk);
+			}
+	
+			mk(EFinal(ident,t,e),p1,(e == null) ? tokenMax : pmax(e));
 		case "while":
 			var econd = parseExpr();
 			var e = parseExpr();
@@ -1340,6 +1361,7 @@ class Parser {
 						set : set,
 						type : type,
 						expr : expr,
+						isfinal : (id == "final")
 					}),
 				};
 			default:
