@@ -122,6 +122,7 @@ enum Error {
 enum ModuleDecl {
 	DPackage( path : Array<String> );
 	DImport( path : Array<String>, ?everything : Bool, ?name : String );
+	DUsing( path: Array<String> );
 	DClass( c : ClassDecl );
 	DTypedef( c : TypeDecl );
 	DEnum( e : EnumDecl );

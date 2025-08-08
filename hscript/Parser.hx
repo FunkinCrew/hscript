@@ -1194,6 +1194,24 @@ class Parser {
 			}
 			ensure(TSemicolon);
 			return DImport(path, star, name);
+		case "using":
+			var path = [getIdent()];
+			while( true ) {
+				var t = token();
+				if( t != TDot ) {
+					push(t);
+					break;
+				}
+				t = token();
+				switch( t ) {
+				case TId(id):
+					path.push(id);
+				default:
+					unexpected(t);
+				}
+			}
+			ensure(TSemicolon);
+			return DUsing(path);
 		case "class":
 			var name = getIdent();
 			var params = parseParams();
