@@ -606,7 +606,7 @@ class Parser {
 				if( semic ) push(TSemicolon);
 			}
 			mk(EIf(cond,e1,e2),p1,(e2 == null) ? tokenMax : pmax(e2));
-		case "var", "final":
+		case "var":
 			var ident = getIdent();
 			var tk = token();
 			var t = null;
